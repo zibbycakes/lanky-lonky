@@ -25,10 +25,10 @@ vote_table = dynamodb.Table(VOTE_TABLE)
 @commands.has_role('GM')
 async def start(ctx, role: discord.Role):
     global valid_votes
+    global player_role 
     if len(valid_votes) != 0:
         valid_votes = []
     for member in role.members:
-        print(member.nick)
         player_alias = {'username': member.name, 'nickname':''}
         if(member.nick != None):
             player_alias['nickname'] = member.nick
@@ -38,9 +38,8 @@ async def start(ctx, role: discord.Role):
 
 # works if you either use the actual user name (not the nickname), or a mention with nickname
 @bot.command(name='vote', help='Vote for someone')
-@commands.has_role('player')
+@commands.has_role('Mafia Player')
 async def vote(ctx, player:discord.Member):
-    print(player.nick)
     item = vote_table.put_item(
         Item={
             'VotedPlayer':player.nick,
