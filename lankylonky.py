@@ -25,11 +25,11 @@ vote_table = dynamodb.Table(VOTE_TABLE)
 @commands.has_role('GM')
 async def start(ctx, role: discord.Role):
     global valid_votes
-    global player_role 
     if len(valid_votes) != 0:
         valid_votes = []
     for member in role.members:
-        player_alias = {'username': member.name, 'nickname':''}
+        # if a player doesn't have a nickname, pretend their username is their nickname by default
+        player_alias = {'username': member.name, 'nickname': member.name}
         if(member.nick != None):
             player_alias['nickname'] = member.nick
         valid_votes.append(player_alias)
@@ -38,18 +38,37 @@ async def start(ctx, role: discord.Role):
 
 # works if you either use the actual user name (not the nickname), or a mention with nickname
 @bot.command(name='vote', help='Vote for someone')
-@commands.has_role('Mafia Player')
+@commands.bot_has_permissions(read_messages=True)
 async def vote(ctx, player:discord.Member):
-    item = vote_table.put_item(
-        Item={
-            'VotedPlayer':player.nick,
-            'Timestamp':datetime.now().strftime("%d-%b-%Y (%H:%M:%S.%f)"),
-            'VoterPlayer':ctx.author.display_name
-        }
-    )
-    print("PutItem succeeded:")
-    print(json.dumps(item, indent=4))
-    # need to catch error if member name is not correct
-    # need to catch error for wrong role type
+    voter_is_valid = isMemberInVotingPool(ctx.author)
+    candidate_is_valid = isMemberInVotingPool(player)
+    if(voter_is_valid and candidate_is_valid):
+        item = vote_table.put_item(
+            Item={
+                'VotedPlayer':player.name,
+                'Timestamp':datetime.now().strftime("%d-%b-%Y (%H:%M:%S.%f)"),
+                'VoterPlayer':ctx.author.display_name
+            }
+        )
+        print("PutItem succeeded:")
+        print(json.dumps(item, indent=4))
+        await ctx.send(":ballot_box: `" + ctx.author.name +"`'s vote for `" + player.name + "` has been registered.")
+        # need to catch error if member name is not correct
+        # - can't find memeber discord.ext.commands.errors.BadArgument
+        # need to catch error for wrong role type
+        # catch errors using on_error
+    elif not voter_is_valid:
+        await ctx.send("You (`" + ctx.author.name + "`) are not a valid voter.")
+    elif not candidate_is_valid:
+        await ctx.send("That person (`" +  player.name + "` / `" + player.nick + "`) is not a valid option for voting.")
+
+def isMemberInVotingPool(player:discord.Member):
+    if player is None:
+        print("bad player")
+    player_username = player.name
+    player_nickname = player.nick
+    for voter in valid_votes:
+        if voter['nickname'] == player_nickname or voter['username'] == player_username:
+            return True
 
 bot.run(TOKEN)
