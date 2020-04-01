@@ -42,7 +42,7 @@ async def start(ctx, role: discord.Role):
 async def vote(ctx, player:discord.Member):
     voter_is_valid = isMemberInVotingPool(ctx.author)
     candidate_is_valid = isMemberInVotingPool(player)
-    if(voter_is_valid and candidate_is_valid):
+    if voter_is_valid and candidate_is_valid:
         item = vote_table.put_item(
             Item={
                 'VotedPlayer':player.name,
@@ -60,7 +60,7 @@ async def vote(ctx, player:discord.Member):
     elif not voter_is_valid:
         await ctx.send("You (`" + ctx.author.name + "`) are not a valid voter.")
     elif not candidate_is_valid:
-        await ctx.send("That person (`" +  player.name + "` / `" + player.nick + "`) is not a valid option for voting.")
+        await ctx.send("That person (`" +  player.name + "` / `@" + player.nick + "`) is not a valid option for voting.")
 
 def isMemberInVotingPool(player:discord.Member):
     if player is None:
@@ -70,5 +70,13 @@ def isMemberInVotingPool(player:discord.Member):
     for voter in valid_votes:
         if voter['nickname'] == player_nickname or voter['username'] == player_username:
             return True
+    return False
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.errors.BadArgument) and ctx.command.name == 'vote':
+        await ctx.send(':x: That\'s not a valid input. Make sure you are providing either the username of the player (found before the 4 digit number of their tag), or mentioning the nickname of the player like `@lanky lonky`.')
+    elif isinstance(error, commands.errors.BadArgument) and ctx.command.name == 'start_game':
+        await ctx.send(':x: That\'s not a valid input. Try mentioning the role like `@Mafia Player`.')
 
 bot.run(TOKEN)
