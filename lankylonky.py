@@ -136,6 +136,17 @@ async def end_day(ctx):
         else:
             await ctx.send('No one voted today. :man_shrugging:')
 
+@bot.command(name='tally_votes', help='Tally the votes for the current day.')
+async def tally_votes(ctx):
+    tally = tally_votes(day_counter)
+    tally_array = [entry['name'] + ': ' + ','.join(entry['voters']) + ' (' + str(entry['count']) + ')' for entry in
+                   tally]
+    if len(tally_array) != 0:
+        await ctx.send(
+            'Below are the votes counted so far.\n```' + '\n'.join(
+                tally_array) + '```')
+    else:
+        await ctx.send('No one has voted yet. :man_shrugging:')
 
 def evaluate_valid_voters():
     global role_for_valid_voters
