@@ -13,24 +13,28 @@ load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD = os.getenv('DISCORD_GUILD')
 VOTE_TABLE = os.getenv('VOTE_TABLE')
+DAY_TABLE = os.getenv('DAY_TABLE')
 
 valid_votes = []
 
 bot = commands.Bot(command_prefix='!')
 dynamodb = boto3.resource('dynamodb', region_name='us-west-2', endpoint_url=os.getenv('ENDPOINT_URL'))
 vote_table = dynamodb.Table(VOTE_TABLE)
+day_table = dynamodb.Table(DAY_TABLE)
 day_counter = 0
 game_started = False
 daytime = False
+current_game_name = ''
 
-@bot.command(name='start_game', help='start the voting game, setting up who is valid to vote for.')
+@bot.command(name='start_game', help='Start listening for votes. This sets up who is valid to vote for by using the provided role. Needs a unique game name identifier with no spaces, and the role being used by the game players.')
 @commands.has_role('GM')
-async def start(ctx, role: discord.Role):
+async def start(ctx, game_name, role: discord.Role): #verify game name is unique
     global game_started
     if not game_started:
         global valid_votes
         global day_counter
         global daytime
+        global current_game_name
         day_counter = 0
         if len(valid_votes) != 0:
             valid_votes = []
@@ -40,6 +44,10 @@ async def start(ctx, role: discord.Role):
             if(member.nick != None):
                 player_alias['nickname'] = member.nick
             valid_votes.append(player_alias)
+        if game_name_exists(game_name):
+            await ctx.send('That game name already exists.')
+            return
+        current_game_name = game_name
         player_names = [alias['nickname'] if alias['nickname'] != '' else alias['username'] for alias in valid_votes]
         game_started = True
         success = increment_and_record_day()
@@ -53,15 +61,17 @@ async def start(ctx, role: discord.Role):
         await ctx.send("Game not started since there's already one in progress.")
 
 # works if you either use the actual user name (not the nickname), or a mention with nickname
-@bot.command(name='vote', help='Vote for someone')
+@bot.command(name='vote', help='Vote for someone.')
 @commands.bot_has_permissions(read_messages=True)
 async def vote(ctx, player:discord.Member):
+    global current_game_name
     if daytime:
         voter_is_valid = isMemberInVotingPool(ctx.author)
         candidate_is_valid = isMemberInVotingPool(player)
         if voter_is_valid and candidate_is_valid:
             item = vote_table.put_item(
                 Item={
+                    'GameName':current_game_name,
                     'VotedPlayer':player.name,
                     'Timestamp':datetime.now().strftime("%d-%b-%Y (%H:%M:%S.%f)"),
                     'VoterPlayer':ctx.author.display_name
@@ -78,7 +88,7 @@ async def vote(ctx, player:discord.Member):
         await ctx.send("Voting is not permitted at night. Go to sleep.")
 
 # make a timestamp for the day, only GM can call
-@bot.command(name='start_day', help='Start the day.')
+@bot.command(name='start_day', help='Start the next day phase.')
 @commands.bot_has_permissions(read_messages=True)
 @commands.has_role('GM')
 async def start_day(ctx):
@@ -97,18 +107,20 @@ async def start_day(ctx):
             await ctx.send("Day was not started.")
 
 # make a timestamp for the end of day, only GM can call. No votes should be allowed at night.
-@bot.command(name='end_day', help='End the day.')
+@bot.command(name='end_day', help='End the current day.')
 @commands.bot_has_permissions(read_messages=True)
 @commands.has_role('GM')
 async def end_day(ctx):
     global day_counter
     global daytime
+    global current_game_name
     if game_started and daytime:
-        item = vote_table.put_item(
+        item = day_table.put_item(
             Item={
-                'VotedPlayer':'day ' + str(day_counter),
+                'GameName': current_game_name,
+                'logDay':day_counter,
                 'Timestamp':datetime.now().strftime("%d-%b-%Y (%H:%M:%S.%f)"),
-                'VoterPlayer': 'END'
+                'dayStart': False
             }
         )
         print("PutItem succeeded:")
@@ -118,19 +130,25 @@ async def end_day(ctx):
         tally_array = [entry['name']+': '+str(entry['count']) for entry in tally] #need to double check
         await ctx.send(':full_moon: Day ' + str(day_counter) + ' has ended. Below are the tallied votes.\n```'+'\n'.join(tally_array)+'```')
     
-
+def game_name_exists(game_name):
+    game_name_exists_query = day_table.query(
+        KeyConditionExpression=Key('GameName').eq(game_name)
+    )
+    return len(game_name_exists_query['Items'])>0
 
 def increment_and_record_day():
     global day_counter
     global game_started
     global daytime
+    global current_game_name
     if game_started and not daytime:
         day_counter+=1
-        item = vote_table.put_item(
+        item = day_table.put_item(
             Item={
-                'VotedPlayer':'day ' + str(day_counter),
+                'GameName': current_game_name,
+                'logDay': day_counter,
                 'Timestamp':datetime.now().strftime("%d-%b-%Y (%H:%M:%S.%f)"),
-                'VoterPlayer': 'START'
+                'dayStart': True
             }
         )
         print("PutItem succeeded:")
@@ -164,7 +182,7 @@ async def on_command_error(ctx, error):
     elif isinstance(error, commands.errors.BadArgument) and ctx.command.name == 'start_game':
         await ctx.send(':x: That\'s not a valid input. Try mentioning the role like `@Mafia Player`.')
     elif isinstance(error, commands.errors.MissingRequiredArgument) and ctx.command.name == 'start_game':
-        await ctx.send(':x: Please mention what member group is being used for the valid voting pool like `!start_game @Mafia Player`.')
+        await ctx.send(':x: Make sure you include the unique game name and a mention for the role that\'s being used by players for this game. Ex: `!start_game newGame @MafiaPlayer`.')
     else:
         print(error)
         print(dir(error))
