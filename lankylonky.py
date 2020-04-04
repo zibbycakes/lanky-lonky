@@ -252,6 +252,8 @@ async def on_command_error(ctx, error):
         await ctx.send(':x: That\'s not a valid input. Try mentioning the role like `@Mafia Player`.')
     elif isinstance(error, commands.errors.MissingRequiredArgument) and ctx.command.name == 'start_game':
         await ctx.send(':x: Make sure you include the unique game name and a mention for the role that\'s being used by players for this game. Ex: `!start_game newGame @MafiaPlayer`.')
+    elif isinstance(error, commands.errors.CommandNotFound):
+        await ctx.send(':x: There is no such command.')
     else:
         print(error)
         print(dir(error))
