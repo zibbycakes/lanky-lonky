@@ -107,6 +107,7 @@ async def start_day(ctx):
             await ctx.send("Day was not started.")
 
 # make a timestamp for the end of day, only GM can call. No votes should be allowed at night.
+# Changes to the role should be made before end of day
 @bot.command(name='end_day', help='End the current day.')
 @commands.bot_has_permissions(read_messages=True)
 @commands.has_role('GM')
