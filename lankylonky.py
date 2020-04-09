@@ -66,11 +66,11 @@ async def vote(ctx, player:discord.Member):
     if daytime:
         voter_is_valid = is_member_in_voting_pool(ctx.author)
         candidate_is_valid = is_member_in_voting_pool(player)
-        if voter_is_valid and candidate_is_valid:
+        if voter_is_valid > -1 and candidate_is_valid > -1:
             item = vote_table.put_item(
                 Item={
                     'GameName':current_game_name,
-                    'VotedPlayer':player.name,
+                    'VotedPlayer':player.display_name,
                     'Timestamp':datetime.now().strftime("%d-%b-%Y (%H:%M:%S.%f)"),
                     'VoterPlayer':ctx.author.display_name
                 }
@@ -128,7 +128,8 @@ async def end_day(ctx):
         print(json.dumps(item, indent=4))
         daytime = False
         tally = tally_votes(day_counter)
-        tally_array = [entry['name']+': '+','.join(entry['voters'])+' ('+str(entry['count']) +')' for entry in tally]
+        tally_array = [entry['name']+': '+', '.join([voters['voter'] for voters in entry['voters']])
+                       + ' ('+str(entry['count']) +')' for entry in tally]
         if len(tally_array) != 0:
             await ctx.send(
                 ':full_moon: Day ' + str(day_counter) + ' has ended. Below are the tallied votes.\n```' + '\n'.join(
@@ -140,8 +141,8 @@ async def end_day(ctx):
 async def tally_votes(ctx):
     if game_started:
         tally = tally_votes(day_counter)
-        tally_array = [entry['name'] + ': ' + ','.join(entry['voters']) + ' (' + str(entry['count']) + ')' for entry in
-                       tally]
+        tally_array = [entry['name'] + ': ' + ', '.join([voters['voter'] for voters in entry['voters']])
+                       + ' (' + str(entry['count']) + ')' for entry in tally]
         if len(tally_array) != 0:
             await ctx.send(
                 'Below are the votes counted so far.\n```' + '\n'.join(
@@ -150,6 +151,44 @@ async def tally_votes(ctx):
             await ctx.send('No one has voted yet. :man_shrugging:')
     else:
         await ctx.send('There are no games in progress.')
+
+@commands.has_role('GM')
+@bot.command(name='remove_player', help='Remove a player from the voters list manually.')
+async def remove_player(ctx, player_to_remove: discord.Member):
+    index = is_member_in_voting_pool(player_to_remove)
+    if index > -1:
+        # get all current votes
+        # if the VoterPlayer or the VotedPlayer are equal to player_to_remove.display_name, delete the item
+        votes_so_far = tally_votes(day_counter)
+        delete_items = []
+        votee_names = [vote['name'] for vote in votes_so_far]
+        index = votee_names.index(player_to_remove.display_name) if player_to_remove.display_name in votee_names else -1
+        print(index)
+        if index > -1:
+            for voters in votes_so_far[index]['voters']:
+                delete_items.append({
+                    'Key': {
+                        'GameName': current_game_name,
+                        'Timestamp': voters['timestamp']
+                    }
+                })
+        for votes in votes_so_far:
+            for voter in votes['voters']:
+                if voter['voter'] == player_to_remove.display_name:
+                    delete_items.append({
+                        'Key': {
+                            'GameName': current_game_name,
+                            'Timestamp': voter['timestamp']
+                        }
+                    })
+        for delete_item in delete_items:
+            vote_table.delete_item(**delete_item)
+            print("DeleteItem succeeded:")
+            print(json.dumps(delete_item, indent=4))
+        del(valid_votes[index])
+        await ctx.send('`'+player_to_remove.display_name+'` has been removed from the voters pool.')
+    else:
+        await ctx.send('That player is currently not in the valid voters pool.')
 
 def evaluate_valid_voters():
     global role_for_valid_voters
@@ -229,7 +268,7 @@ def tally_votes(day):
             if i['VoterPlayer'] not in voters_accounted:  # only count the vote if it's the latest one
                 if i['VotedPlayer'] not in vote_tally:  # add the voted player if the key doesn't exist yet
                     vote_tally[i['VotedPlayer']] = []
-                vote_tally[i['VotedPlayer']].append(i['VoterPlayer'])  # add the player who voted for them to the dictionary
+                vote_tally[i['VotedPlayer']].append({'voter':i['VoterPlayer'], 'timestamp':i['Timestamp']})  # add the player who voted for them to the dictionary
                 voters_accounted.append(i['VoterPlayer'])
 
     vote_generator = [{'name': i, 'count':len(vote_tally[i]), 'voters':vote_tally[i]} for i in vote_tally]
@@ -242,10 +281,10 @@ def is_member_in_voting_pool(player:discord.Member):
         print("bad player")
     player_username = player.name
     player_nickname = player.nick
-    for voter in valid_votes:
+    for i, voter in enumerate(valid_votes):
         if voter['nickname'] == player_nickname or voter['username'] == player_username:
-            return True
-    return False
+            return i
+    return -1
 
 @bot.event
 async def on_command_error(ctx, error):
