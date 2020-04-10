@@ -8,6 +8,7 @@ import discord
 from dotenv import load_dotenv
 from discord.ext import commands
 from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Attr
 from datetime import datetime
 
 load_dotenv()
@@ -29,6 +30,73 @@ game_started = False
 daytime = False
 current_game_name = ''
 role_for_valid_voters = None
+
+possible_recoveries = []
+
+@bot.event
+async def on_ready():
+    global possible_recoveries
+    # scan to see if there's already a game in progress
+    current_statuses = status_table.scan(
+        FilterExpression=Attr('Status').eq('InProgress')
+    )
+    if len(current_statuses['Items']) != 0:
+        possible_recoveries = current_statuses['Items']
+        print(possible_recoveries)
+        # post a message to the channel
+        categories = filter(lambda channel: isinstance(channel, discord.CategoryChannel) and channel.name=='MAFIA-GAME', bot.guilds[0].channels)
+        category = next(categories)
+        channel = discord.utils.get(bot.guilds[0].channels, category=category)
+        # sort games by newest to oldest
+        possible_recoveries.sort(key=lambda x: x['StatusUpdated'], reverse=True)
+        name_list = [game['GameName'] for game in possible_recoveries]
+        await channel.send('I\'ve found one or more existing games (names below) '
+                           +'that weren\'t finished yet. If you want to recover any of these games, '
+                           +'use the command `!recover <game_name> <player_role>`.\n```' +'\n'.join(name_list) +'```')
+
+@bot.command(name='recover', help='Recover a previously started but unfinished game.')
+@commands.has_role('GM')
+async def recover(ctx, game_name, role: discord.Role):
+    global current_game_name
+    global game_started
+    global role_for_valid_voters
+    global day_counter
+    global daytime
+    if game_name in [game['GameName'] for game in possible_recoveries]:
+        day_log_items = day_table.query(
+            KeyConditionExpression=Key('GameName').eq(game_name),
+            ScanIndexForward = False
+        )
+        if len(day_log_items['Items']) == 0:
+            await ctx.send('Recovery failed. No phase information was found.')
+            return
+        day_counter = day_log_items['Items'][0]['logDay']
+        daytime = day_log_items['Items'][0]['dayStart']
+
+        current_game_name = game_name
+        game_started = True
+        role_for_valid_voters = role
+        evaluate_valid_voters()
+
+        status_update = status_table.update_item(
+            Key={
+                'GameName': current_game_name
+            },
+            UpdateExpression="set StatusUpdated = :u",
+            ExpressionAttributeValues={
+                ':u': datetime.now().strftime("%d-%b-%Y (%H:%M:%S.%f)")
+            }
+        )
+        print("UpdateItem succeeded:")
+        print(json.dumps(status_update, indent=4))
+
+        player_names = [alias['nickname'] if alias['nickname'] != '' else alias['username'] for alias in valid_votes]
+        await ctx.send('`' + game_name + '` has been recovered. Here are the stats:\n'
+                       +'It is currently ' + (':sunny: Day' if daytime else ':full_moon: Night') + ' '
+                       + str(day_counter) +'. ' + 'Below is the list of players.\n```'
+                       + '\n'.join(player_names) +'```')
+    else:
+        await ctx.send('That game is not in a recoverable game.')
 
 @bot.command(name='start_game', help='Start listening for votes. This sets up who is valid to vote for by using the provided role. Needs a unique game name identifier with no spaces, and the role being used by the game players.')
 @commands.has_role('GM')
@@ -346,6 +414,8 @@ async def on_command_error(ctx, error):
         await ctx.send(':x: That\'s not a valid input. Try mentioning the role like `@Mafia Player`.')
     elif isinstance(error, commands.errors.MissingRequiredArgument) and ctx.command.name == 'start_game':
         await ctx.send(':x: Make sure you include the unique game name and a mention for the role that\'s being used by players for this game. Ex: `!start_game newGame @MafiaPlayer`.')
+    elif isinstance(error, commands.errors.MissingRequiredArgument) and ctx.command.name == 'recover':
+        await ctx.send(':x: Make sure you include the unique game name and a mention for the role that\'s being used by players for this game. Ex: `!recover newGame @MafiaPlayer`.')
     elif isinstance(error, commands.errors.CommandNotFound):
         await ctx.send(':x: There is no such command.')
     else:
