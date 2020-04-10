@@ -193,12 +193,18 @@ async def add_player(ctx, player_to_add: discord.Member):
 @bot.command(name='end_game', help="End the current game.")
 async def end_game(ctx):
     global game_started
-    success = end_game_update()
-    game_started = False
-    if success:
-        await ctx.send('Game over. The game has successfully been ended.')
+    global current_game_name
+    global daytime
+    if game_started:
+        success = end_game_update()
+        game_started = False
+        daytime = False
+        if success:
+            await ctx.send('Game over. The game (`'+current_game_name+'`) has successfully been ended.')
+        else:
+            await ctx.send('There was an issue ending the game.')
     else:
-        await ctx.send('There was an issue ending the game.')
+        await ctx.send('There\'s no current game to end.')
 
 def evaluate_valid_voters():
     global role_for_valid_voters
@@ -253,9 +259,9 @@ def tally_votes(day):
                 vote_tally[i['VotedPlayer']].append({'voter':i['VoterPlayer'], 'timestamp':i['Timestamp']})  # add the player who voted for them to the dictionary
                 voters_accounted.append(i['VoterPlayer'])
 
-    vote_generator = [{'name': i, 'count':len(vote_tally[i]), 'voters':vote_tally[i]} for i in vote_tally]
-
-    return vote_generator
+    vote_list = [{'name': i, 'count':len(vote_tally[i]), 'voters':vote_tally[i]} for i in vote_tally]
+    vote_list.sort(reverse=True, key=lambda x: x['count'])
+    return vote_list
 
 def obtain_all_votes_for_day(day):
     global current_game_name
