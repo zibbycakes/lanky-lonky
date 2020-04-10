@@ -208,18 +208,36 @@ async def end_day(ctx):
         else:
             await ctx.send('No one voted today. :man_shrugging:')
 
-@bot.command(name='tally_votes', help='Tally the votes for the current day.', aliases=['vote_tally'])
-async def tally_votes(ctx):
+@bot.command(name='tally_votes', help='Tally the votes for the current day or, by providing a number, '
+                                      +'the final votes for a given day phase.', aliases=['vote_tally'])
+async def tally_votes(ctx, day=-1):
+    global game_started
+    global daytime
+    global day_counter
     if game_started:
-        tally = tally_votes(day_counter)
+        if day == -1:
+            day = day_counter
+        tally = tally_votes(day)
         tally_array = [entry['name'] + ': ' + ', '.join([voters['voter'] for voters in entry['voters']])
                        + ' (' + str(entry['count']) + ')' for entry in tally]
         if len(tally_array) != 0:
-            await ctx.send(
-                'Below are the votes counted so far.\n```' + '\n'.join(
-                    tally_array) + '```')
-        else:
+            if day == day_counter:
+                if daytime:
+                    await ctx.send(
+                        'Below are the votes counted so far.\n```' + '\n'.join(
+                            tally_array) + '```')
+                else:
+                    await ctx.send(
+                        'Below are the votes counted from yesterday.\n```' + '\n'.join(
+                            tally_array) + '```')
+            else:
+                await ctx.send(
+                    'Below are the final votes for day ' + str(day) + '.\n```' + '\n'.join(
+                        tally_array) + '```')
+        elif day == day_counter:
             await ctx.send('No one has voted yet. :man_shrugging:')
+        else:
+            await ctx.send('That phase hasn\'t happened yet.')
     else:
         await ctx.send('There are no games in progress.')
 
@@ -356,6 +374,8 @@ def obtain_all_votes_for_day(day):
             if day_start_ts != '-1' and end_ts != '-1':
                 continue
 
+    if day_start_ts == -1 and end_ts == -1:
+        return {'Items':[]}
     votes_query = vote_table.query(
         KeyConditionExpression=Key('GameName').eq(current_game_name) & Key('Timestamp').between(day_start_ts, end_ts),
         ScanIndexForward=False
