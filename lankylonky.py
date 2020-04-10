@@ -70,8 +70,8 @@ async def recover(ctx, game_name, role: discord.Role):
         if len(day_log_items['Items']) == 0:
             await ctx.send('Recovery failed. No phase information was found.')
             return
-        day_counter = day_log_items['Items'][0]['logDay']
-        daytime = day_log_items['Items'][0]['dayStart']
+        day_counter = day_log_items['Items'][0]['LogDay']
+        daytime = day_log_items['Items'][0]['DayStart']
 
         current_game_name = game_name
         game_started = True
@@ -190,9 +190,9 @@ async def end_day(ctx):
         item = day_table.put_item(
             Item={
                 'GameName': current_game_name,
-                'logDay':day_counter,
+                'LogDay':day_counter,
                 'Timestamp':datetime.now().strftime("%d-%b-%Y (%H:%M:%S.%f)"),
-                'dayStart': False
+                'DayStart': False
             }
         )
         print("PutItem succeeded:")
@@ -321,9 +321,9 @@ def increment_and_record_day():
         item = day_table.put_item(
             Item={
                 'GameName': current_game_name,
-                'logDay': day_counter,
+                'LogDay': day_counter,
                 'Timestamp':datetime.now().strftime("%d-%b-%Y (%H:%M:%S.%f)"),
-                'dayStart': True
+                'DayStart': True
             }
         )
         print("PutItem succeeded:")
@@ -359,15 +359,15 @@ def obtain_all_votes_for_day(day):
     )
     if daytime and day == day_counter:
         for i in query_get_timestamps['Items']:
-            if 'logDay' in i and i['logDay'] == day:
-                if i['dayStart']:
+            if 'LogDay' in i and i['LogDay'] == day:
+                if i['DayStart']:
                     day_start_ts = i['Timestamp']
                     continue
         end_ts = datetime.now().strftime("%d-%b-%Y (%H:%M:%S.%f)")
     else:
         for i in query_get_timestamps['Items']:
-            if 'logDay' in i and i['logDay'] == day:
-                if i['dayStart']:
+            if 'LogDay' in i and i['LogDay'] == day:
+                if i['DayStart']:
                     day_start_ts = i['Timestamp']
                 else:
                     end_ts = i['Timestamp']
