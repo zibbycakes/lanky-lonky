@@ -15,6 +15,7 @@ TOKEN = os.getenv('DISCORD_TOKEN')
 GUILD = os.getenv('DISCORD_GUILD')
 VOTE_TABLE = os.getenv('VOTE_TABLE')
 DAY_TABLE = os.getenv('DAY_TABLE')
+STATUS_TABLE = os.getenv('STATUS_TABLE')
 
 valid_votes = []
 
@@ -22,6 +23,7 @@ bot = commands.Bot(command_prefix='!')
 dynamodb = boto3.resource('dynamodb', region_name='us-west-2', endpoint_url=os.getenv('ENDPOINT_URL'))
 vote_table = dynamodb.Table(VOTE_TABLE)
 day_table = dynamodb.Table(DAY_TABLE)
+status_table = dynamodb.Table(STATUS_TABLE)
 day_counter = 0
 game_started = False
 daytime = False
@@ -49,7 +51,7 @@ async def start(ctx, game_name, role: discord.Role): #verify game name is unique
         current_game_name = game_name
         player_names = [alias['nickname'] if alias['nickname'] != '' else alias['username'] for alias in valid_votes]
         game_started = True
-        success = increment_and_record_day()
+        success = increment_and_record_day() & start_game_entry()
         if success:
             await ctx.send('I\'ve added the following players to the game. Let\'s get started!\n```\n'+ '\n'.join(player_names) + "```\n:sunny: Day " + str(day_counter) + " has been started. Good luck!" )
         else:
@@ -163,7 +165,7 @@ async def remove_player(ctx, player_to_remove: discord.Member):
         # if the VoterPlayer or the VotedPlayer are equal to player_to_remove.display_name, delete the item
         votes_so_far = obtain_all_votes_for_day(day_counter)
         delete_items = []
-        
+
         for vote in votes_so_far['Items']:
             if vote['VoterPlayer'] == player_to_remove.display_name or vote['VotedPlayer'] == player_to_remove.display_name:
                 delete_items.append({
@@ -187,6 +189,17 @@ async def add_player(ctx, player_to_add: discord.Member):
     valid_votes.append({'username': player_to_add.name, 'nickname': player_to_add.name})
     await ctx.send('I\'ve added the player `' + player_to_add.display_name + '` to the valid voter list.')
 
+@commands.has_role('GM')
+@bot.command(name='end_game', help="End the current game.")
+async def end_game(ctx):
+    global game_started
+    success = end_game_update()
+    game_started = False
+    if success:
+        await ctx.send('Game over. The game has successfully been ended.')
+    else:
+        await ctx.send('There was an issue ending the game.')
+
 def evaluate_valid_voters():
     global role_for_valid_voters
     global valid_votes
@@ -201,7 +214,7 @@ def evaluate_valid_voters():
     # print(str(valid_votes))
 
 def does_game_name_exist(game_name):
-    game_name_exists_query = day_table.query(
+    game_name_exists_query = status_table.query(
         KeyConditionExpression=Key('GameName').eq(game_name)
     )
     return len(game_name_exists_query['Items'])>0
@@ -285,6 +298,39 @@ def is_member_in_voting_pool(player:discord.Member):
         if voter['nickname'] == player_nickname or voter['username'] == player_username:
             return i
     return -1
+
+def start_game_entry():
+    global current_game_name
+    game_status_start_item = status_table.put_item(
+        Item={
+            'GameName': current_game_name,
+            'Status': 'InProgress',
+            'GameStarted': datetime.now().strftime("%d-%b-%Y (%H:%M:%S.%f)"),
+            'StatusUpdated': datetime.now().strftime("%d-%b-%Y (%H:%M:%S.%f)")
+        }
+    )
+    print("PutItem succeeded:")
+    print(json.dumps(game_status_start_item, indent=4))
+    return True
+
+def end_game_update():
+    global current_game_name
+    game_status_update_query = status_table.update_item(
+        Key={
+                'GameName': current_game_name
+            },
+            UpdateExpression="set #stat = :s, StatusUpdated = :u",
+            ExpressionAttributeValues={
+                ':s': 'Finished',
+                ':u': datetime.now().strftime("%d-%b-%Y (%H:%M:%S.%f)")
+            },
+            ExpressionAttributeNames={
+            "#stat": "Status" # necessary because 'status' is a reserved word
+          }
+    )
+    print("UpdateItem succeeded:")
+    print(json.dumps(game_status_update_query, indent=4))
+    return True
 
 @bot.event
 async def on_command_error(ctx, error):
