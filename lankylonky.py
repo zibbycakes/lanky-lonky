@@ -55,7 +55,7 @@ async def on_ready():
                            +'use the command `!recover <game_name> <player_role>`.\n```' +'\n'.join(name_list) +'```')
 
 @bot.command(name='recover', help='Recover a previously started but unfinished game.')
-@commands.has_role('GM')
+@commands.has_role('Game Master')
 async def recover(ctx, game_name, role: discord.Role):
     global current_game_name
     global game_started
@@ -99,7 +99,7 @@ async def recover(ctx, game_name, role: discord.Role):
         await ctx.send('That game is not in a recoverable game.')
 
 @bot.command(name='start_game', help='Start listening for votes. This sets up who is valid to vote for by using the provided role. Needs a unique game name identifier with no spaces, and the role being used by the game players.')
-@commands.has_role('GM')
+@commands.has_role('Game Master')
 async def start(ctx, game_name, role: discord.Role): #verify game name is unique
     global game_started
     if not game_started:
@@ -134,32 +134,37 @@ async def start(ctx, game_name, role: discord.Role): #verify game name is unique
 @commands.bot_has_permissions(read_messages=True)
 async def vote(ctx, player:discord.Member):
     global current_game_name
-    if daytime:
-        voter_is_valid = is_member_in_voting_pool(ctx.author)
-        candidate_is_valid = is_member_in_voting_pool(player)
-        if voter_is_valid > -1 and candidate_is_valid > -1:
-            item = vote_table.put_item(
-                Item={
-                    'GameName':current_game_name,
-                    'VotedPlayer':player.display_name,
-                    'Timestamp':datetime.now().strftime("%d-%b-%Y (%H:%M:%S.%f)"),
-                    'VoterPlayer':ctx.author.display_name
-                }
-            )
-            print("PutItem succeeded:")
-            print(json.dumps(item, indent=4))
-            await ctx.send(":ballot_box: `" + ctx.author.display_name +"`'s vote for `" + player.display_name + "` has been registered.")
-        elif not voter_is_valid > -1:
-            await ctx.send("You (`" + ctx.author.name + "`) are not a valid voter.")
-        elif not candidate_is_valid > -1:
-            await ctx.send("That person (`" +  player.name + "` / `@" + player.nick + "`) is not a valid option for voting.")
+    global daytime
+    global game_started
+    if game_started:
+        if daytime:
+            voter_is_valid = is_member_in_voting_pool(ctx.author)
+            candidate_is_valid = is_member_in_voting_pool(player)
+            if voter_is_valid > -1 and candidate_is_valid > -1:
+                item = vote_table.put_item(
+                    Item={
+                        'GameName':current_game_name,
+                        'VotedPlayer':player.display_name,
+                        'Timestamp':datetime.now().strftime("%d-%b-%Y (%H:%M:%S.%f)"),
+                        'VoterPlayer':ctx.author.display_name
+                    }
+                )
+                print("PutItem succeeded:")
+                print(json.dumps(item, indent=4))
+                await ctx.send(":ballot_box: `" + ctx.author.display_name +"`'s vote for `" + player.display_name + "` has been registered.")
+            elif not voter_is_valid > -1:
+                await ctx.send("You (`" + ctx.author.name + "`) are not a valid voter.")
+            elif not candidate_is_valid > -1:
+                await ctx.send("That person (`" +  player.name + "` / `@" + player.nick + "`) is not a valid option for voting.")
+        else:
+            await ctx.send("Voting is not permitted at night. Go to sleep.")
     else:
-        await ctx.send("Voting is not permitted at night. Go to sleep.")
+        await ctx.send('No game is currently in progress.')
 
 # make a timestamp for the day, only GM can call
 @bot.command(name='start_day', help='Start the next day phase.')
 @commands.bot_has_permissions(read_messages=True)
-@commands.has_role('GM')
+@commands.has_role('Game Master')
 async def start_day(ctx):
     global day_counter
     global daytime
@@ -181,7 +186,7 @@ async def start_day(ctx):
 # Changes to the role should be made before end of day
 @bot.command(name='end_day', help='End the current day.')
 @commands.bot_has_permissions(read_messages=True)
-@commands.has_role('GM')
+@commands.has_role('Game Master')
 async def end_day(ctx):
     global day_counter
     global daytime
@@ -241,7 +246,7 @@ async def tally_votes(ctx, day=-1):
     else:
         await ctx.send('There are no games in progress.')
 
-@commands.has_role('GM')
+@commands.has_role('Game Master')
 @bot.command(name='remove_player', help='Remove a player from the voters list manually. This will remove all votes from'
              + "or for this player since day start.")
 async def remove_player(ctx, player_to_remove: discord.Member):
@@ -269,13 +274,13 @@ async def remove_player(ctx, player_to_remove: discord.Member):
     else:
         await ctx.send('That player is currently not in the valid voters pool.')
 
-@commands.has_role('GM')
+@commands.has_role('Game Master')
 @bot.command(name='add_player', help="Add a voter to the valid voter list manually.")
 async def add_player(ctx, player_to_add: discord.Member):
     valid_votes.append({'username': player_to_add.name, 'nickname': player_to_add.name})
     await ctx.send('I\'ve added the player `' + player_to_add.display_name + '` to the valid voter list.')
 
-@commands.has_role('GM')
+@commands.has_role('Game Master')
 @bot.command(name='end_game', help="End the current game.")
 async def end_game(ctx):
     global game_started
@@ -438,6 +443,8 @@ async def on_command_error(ctx, error):
         await ctx.send(':x: Make sure you include the unique game name and a mention for the role that\'s being used by players for this game. Ex: `!recover newGame @MafiaPlayer`.')
     elif isinstance(error, commands.errors.CommandNotFound):
         await ctx.send(':x: There is no such command.')
+    elif isinstance(error, commands.errors.MissingRole):
+        await ctx.send('You\'re missing the required role for that command.')
     else:
         print(error)
         print(dir(error))
