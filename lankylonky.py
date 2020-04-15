@@ -21,7 +21,7 @@ STATUS_TABLE = os.getenv('STATUS_TABLE')
 valid_votes = []
 
 bot = commands.Bot(command_prefix='!')
-dynamodb = boto3.resource('dynamodb', region_name='us-west-2', endpoint_url=os.getenv('ENDPOINT_URL'))
+dynamodb = boto3.resource('dynamodb')
 vote_table = dynamodb.Table(VOTE_TABLE)
 day_table = dynamodb.Table(DAY_TABLE)
 status_table = dynamodb.Table(STATUS_TABLE)
